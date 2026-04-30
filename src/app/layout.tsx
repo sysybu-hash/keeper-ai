@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   description: "מעבד מסמכים אישי עם Drive ויומן Google",
 };
 
+/** מונע ניסיון prerender סטטי ל-layout עם `auth()` ב-Nav (בנייה ב-Vercel). */
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{
