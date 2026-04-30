@@ -11,14 +11,22 @@ const googleScopes = [
   "https://www.googleapis.com/auth/calendar.events",
 ].join(" ");
 
+/** Auth.js requires a secret; in production `AUTH_SECRET` must be set explicitly. */
+const authSecret =
+  process.env.AUTH_SECRET?.trim() ||
+  (process.env.NODE_ENV !== "production"
+    ? "dev-only-insecure-secret-do-not-use-in-production"
+    : "");
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  secret: authSecret || undefined,
   trustHost: true,
   session: { strategy: "database" },
   providers: [
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      clientId: process.env.GOOGLE_CLIENT_ID?.trim() ?? "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "",
       authorization: {
         params: {
           prompt: "consent",

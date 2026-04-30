@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { prisma } from "@/lib/prisma";
+import { appBaseUrl } from "@/lib/appUrl";
 
 export async function getGoogleOAuth2ForUser(userId: string) {
   const account = await prisma.account.findFirst({
@@ -12,7 +13,7 @@ export async function getGoogleOAuth2ForUser(userId: string) {
   const oauth2 = new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
-    `${process.env.AUTH_URL}/api/auth/callback/google`,
+    `${appBaseUrl()}/api/auth/callback/google`,
   );
 
   oauth2.setCredentials({
