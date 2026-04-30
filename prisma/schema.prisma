@@ -1,0 +1,158 @@
+// Prisma schema — Auth.js models + document pipeline
+// https://authjs.dev/getting-started/adapters/prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- Auth.js ---
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  documents     Document[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// --- App ---
+
+enum DocumentSource {
+  web
+  email
+  whatsapp
+}
+
+enum DocumentStatus {
+  queued
+  processing
+  needs_review
+  completed
+  failed
+}
+
+enum JobStatus {
+  pending
+  running
+  completed
+  failed
+}
+
+enum JobType {
+  extract_and_sync
+}
+
+model Document {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source           DocumentSource @default(web)
+  originalFilename String
+  mimeType         String
+  status           DocumentStatus @default(queued)
+  rawStorageKey    String?
+  driveFileId      String?
+  driveWebViewLink String?
+  calendarEventId  String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  jobs            ProcessingJob[]
+  extractions     Extraction[]
+  externalActions ExternalAction[]
+}
+
+model ProcessingJob {
+  id         String    @id @default(cuid())
+  documentId String
+  document   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  type       JobType   @default(extract_and_sync)
+  status     JobStatus @default(pending)
+  attempts   Int       @default(0)
+  lastError  String?   @db.Text
+  lockedAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Extraction {
+  id               String   @id @default(cuid())
+  documentId       String
+  document         Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  model            String
+  rawModelOutput   String?  @db.Text
+  normalizedJson   Json
+  fieldConfidence  Json?
+  createdAt        DateTime @default(now())
+}
+
+enum ExternalActionKind {
+  drive_mkdir
+  drive_upload
+  calendar_event
+}
+
+model ExternalAction {
+  id         String             @id @default(cuid())
+  documentId String
+  document   Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  kind       ExternalActionKind
+  externalId String?
+  metadata   Json?
+  createdAt  DateTime           @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
