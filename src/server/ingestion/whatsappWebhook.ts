@@ -1,7 +1,18 @@
-/**
- * Future: WhatsApp media webhook (Twilio / Meta Cloud API).
- * Download media to raw storage, then IngestionPayload + enqueue job.
- */
-export async function handleInboundWhatsAppStub(): Promise<never> {
-  throw new Error("WhatsApp ingestion is not implemented in MVP.");
+import type { IngestionPayload } from "@/server/ingestion/types";
+
+export function buildWhatsAppIngestion(params: {
+  userId: string;
+  originalFilename: string;
+  mimeType: string;
+  bytes: Buffer;
+  mediaId?: string;
+}): IngestionPayload {
+  return {
+    userId: params.userId,
+    source: "whatsapp",
+    originalFilename: params.originalFilename,
+    mimeType: params.mimeType,
+    bytes: params.bytes,
+    externalRef: params.mediaId,
+  };
 }

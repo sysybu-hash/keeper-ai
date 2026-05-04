@@ -1,10 +1,11 @@
-import { prisma } from "@/lib/prisma";
 import { buildDriveFilename } from "@/lib/filename";
-import { shouldMarkNeedsReview, extractionSchema } from "@/lib/validation/extractionSchema";
+import { prisma } from "@/lib/prisma";
+import { extractionSchema, shouldMarkNeedsReview } from "@/lib/validation/extractionSchema";
 import { extractStructuredFromDocument } from "@/server/ai/geminiExtract";
-import { getGoogleOAuth2ForUser } from "@/server/integrations/googleOAuth";
-import { ensureDriveFolderPath, uploadFileToDrive } from "@/server/integrations/drive";
 import { createDueDateEvent } from "@/server/integrations/calendar";
+import { ensureDriveFolderPath, uploadFileToDrive } from "@/server/integrations/drive";
+import { getGoogleOAuth2ForUser } from "@/server/integrations/googleOAuth";
+import { notifyUrgentDocument } from "@/server/notifications/notify";
 import { readRawFile } from "@/server/storage";
 
 export async function processJob(jobId: string): Promise<void> {
@@ -42,7 +43,6 @@ export async function processJob(jobId: string): Promise<void> {
     });
 
     const bytes = await readRawFile(doc.rawStorageKey);
-
     const { data, rawText, model } = await extractStructuredFromDocument({
       mimeType: doc.mimeType,
       bytes,
@@ -64,13 +64,13 @@ export async function processJob(jobId: string): Promise<void> {
     const auth = await getGoogleOAuth2ForUser(doc.userId);
     const { folderId, mkdirActions } = await ensureDriveFolderPath(auth, normalized.suggested_folder);
 
-    for (const a of mkdirActions) {
+    for (const action of mkdirActions) {
       await prisma.externalAction.create({
         data: {
           documentId: doc.id,
           kind: "drive_mkdir",
-          externalId: a.folderId,
-          metadata: { segment: a.segment },
+          externalId: action.folderId,
+          metadata: { segment: action.segment },
         },
       });
     }
@@ -102,30 +102,31 @@ export async function processJob(jobId: string): Promise<void> {
 
     let calendarEventId: string | null = null;
     if (normalized.due_date) {
-      const title = `תשלום: ${normalized.document_type}${normalized.entity ? ` — ${normalized.entity}` : ""}`;
-      const desc = [
-        normalized.summary,
-        "",
-        uploaded.webViewLink ? `קישור למסמך (Drive): ${uploaded.webViewLink}` : "",
-      ]
+      const title = `תשלום: ${normalized.document_type}${normalized.entity ? ` - ${normalized.entity}` : ""}`;
+      const description = [normalized.summary, "", uploaded.webViewLink ? `קישור למסמך ב-Drive: ${uploaded.webViewLink}` : ""]
         .filter(Boolean)
         .join("\n");
 
-      const cal = await createDueDateEvent({
+      const calendar = await createDueDateEvent({
         auth,
         title,
-        description: desc,
+        description,
         dueDateYmd: normalized.due_date,
       });
-      calendarEventId = cal.eventId;
+      calendarEventId = calendar.eventId;
+
       await prisma.externalAction.create({
         data: {
           documentId: doc.id,
           kind: "calendar_event",
-          externalId: cal.eventId,
-          metadata: { htmlLink: cal.htmlLink },
+          externalId: calendar.eventId,
+          metadata: { htmlLink: calendar.htmlLink },
         },
       });
+
+      if (normalized.is_urgent) {
+        await notifyUrgentDocument(doc.userId, normalized.document_type, normalized.due_date);
+      }
     }
 
     await prisma.document.update({

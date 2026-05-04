@@ -1,7 +1,7 @@
 /**
  * Unified raw-file storage:
- * - Production (Vercel): set `BLOB_READ_WRITE_TOKEN` → Vercel Blob (private).
- * - Local dev: omit token → filesystem under `STORAGE_ROOT` / `./uploads`.
+ * - Production (Vercel): set `BLOB_READ_WRITE_TOKEN` for private Vercel Blob storage.
+ * - Local dev: omit token to use filesystem storage under `STORAGE_ROOT` / `./uploads`.
  */
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,22 +15,21 @@ export function blobStorageEnabled(): boolean {
 }
 
 function blobToken(): string {
-  const t = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (!t) throw new Error("BLOB_READ_WRITE_TOKEN is not set");
-  return t;
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (!token) throw new Error("BLOB_READ_WRITE_TOKEN is not set");
+  return token;
 }
 
-/** Returns DB value for `Document.rawStorageKey`. */
+/** Returns the DB value for `Document.rawStorageKey`. */
 export async function saveRawUpload(
   userId: string,
   buffer: Buffer,
   originalFilename: string,
 ): Promise<string> {
   if (process.env.VERCEL === "1" && !blobStorageEnabled()) {
-    throw new Error(
-      "ב-Vercel חובה Blob: בפרויקט → Storage → Blob → Connect, או הגדר ידנית BLOB_READ_WRITE_TOKEN.",
-    );
+    throw new Error("Vercel deployment requires Blob storage. Connect Vercel Blob or set BLOB_READ_WRITE_TOKEN.");
   }
+
   if (blobStorageEnabled()) {
     const ext = path.extname(originalFilename) || ".bin";
     const pathname = `keeper/raw/${userId}/${randomUUID()}${ext}`;
@@ -42,6 +41,7 @@ export async function saveRawUpload(
     });
     return `${BLOB_KEY_PREFIX}${result.url}`;
   }
+
   return local.saveRawUpload(userId, buffer, originalFilename);
 }
 
@@ -54,6 +54,7 @@ export async function readRawFile(storageKey: string): Promise<Buffer> {
     }
     return Buffer.from(await new Response(res.stream).arrayBuffer());
   }
+
   return local.readRawFile(storageKey);
 }
 
@@ -63,6 +64,7 @@ export async function deleteRawFile(storageKey: string): Promise<void> {
     await del(url, { token: blobToken() });
     return;
   }
+
   return local.deleteRawFile(storageKey);
 }
 
