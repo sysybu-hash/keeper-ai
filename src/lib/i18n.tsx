@@ -84,6 +84,21 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const saved = localStorage.getItem("lang") as Language | null;
     if (saved === "he" || saved === "en" || saved === "ru") setLang(saved);
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings");
+        if (!res.ok) return;
+        const data = (await res.json()) as { preferences?: { language?: Language } };
+        const remote = data.preferences?.language;
+        if (remote === "he" || remote === "en" || remote === "ru") {
+          setLang(remote);
+          localStorage.setItem("lang", remote);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
   }, []);
 
   const handleSetLang = (nextLang: Language) => {

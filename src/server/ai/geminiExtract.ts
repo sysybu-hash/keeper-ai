@@ -47,8 +47,8 @@ const RESPONSE_SCHEMA = {
 
 function pickModel(byteLength: number): string {
   const threshold = Number(process.env.GEMINI_PRO_BYTE_THRESHOLD ?? 5_000_000);
-  const pro = process.env.GEMINI_MODEL_PRO ?? "gemini-2.0-pro-exp-02-05";
-  const flash = process.env.GEMINI_MODEL_FLASH ?? "gemini-2.0-flash";
+  const pro = process.env.GEMINI_MODEL_PRO ?? "gemini-2.5-pro";
+  const flash = process.env.GEMINI_MODEL_FLASH ?? "gemini-2.5-flash";
   return byteLength >= threshold ? pro : flash;
 }
 

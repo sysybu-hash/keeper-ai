@@ -61,87 +61,112 @@ export async function processJob(jobId: string): Promise<void> {
       },
     });
 
-    const auth = await getGoogleOAuth2ForUser(doc.userId);
-    const { folderId, mkdirActions } = await ensureDriveFolderPath(auth, normalized.suggested_folder);
-
-    for (const action of mkdirActions) {
-      await prisma.externalAction.create({
-        data: {
-          documentId: doc.id,
-          kind: "drive_mkdir",
-          externalId: action.folderId,
-          metadata: { segment: action.segment },
-        },
-      });
-    }
-
-    const driveName = buildDriveFilename(doc.originalFilename, {
-      due_date: normalized.due_date,
-      issue_date: normalized.issue_date,
-      document_type: normalized.document_type,
-      entity: normalized.entity,
-      amount_due: normalized.amount_due,
-    });
-
-    const uploaded = await uploadFileToDrive({
-      auth,
-      parentFolderId: folderId,
-      fileName: driveName,
-      mimeType: doc.mimeType,
-      rawStorageKey: doc.rawStorageKey,
-    });
-
-    await prisma.externalAction.create({
-      data: {
-        documentId: doc.id,
-        kind: "drive_upload",
-        externalId: uploaded.fileId,
-        metadata: { webViewLink: uploaded.webViewLink, fileName: driveName },
-      },
-    });
-
+    let driveFileId: string | null = null;
+    let driveWebViewLink: string | null = null;
     let calendarEventId: string | null = null;
-    if (normalized.due_date) {
-      const title = `תשלום: ${normalized.document_type}${normalized.entity ? ` - ${normalized.entity}` : ""}`;
-      const description = [normalized.summary, "", uploaded.webViewLink ? `קישור למסמך ב-Drive: ${uploaded.webViewLink}` : ""]
-        .filter(Boolean)
-        .join("\n");
+    const syncWarnings: string[] = [];
 
-      const calendar = await createDueDateEvent({
-        auth,
-        title,
-        description,
-        dueDateYmd: normalized.due_date,
+    try {
+      const auth = await getGoogleOAuth2ForUser(doc.userId);
+      const { folderId, mkdirActions } = await ensureDriveFolderPath(auth, normalized.suggested_folder);
+
+      for (const action of mkdirActions) {
+        await prisma.externalAction.create({
+          data: {
+            documentId: doc.id,
+            kind: "drive_mkdir",
+            externalId: action.folderId,
+            metadata: { segment: action.segment },
+          },
+        });
+      }
+
+      const driveName = buildDriveFilename(doc.originalFilename, {
+        due_date: normalized.due_date,
+        issue_date: normalized.issue_date,
+        document_type: normalized.document_type,
+        entity: normalized.entity,
+        amount_due: normalized.amount_due,
       });
-      calendarEventId = calendar.eventId;
+
+      const uploaded = await uploadFileToDrive({
+        auth,
+        parentFolderId: folderId,
+        fileName: driveName,
+        mimeType: doc.mimeType,
+        rawStorageKey: doc.rawStorageKey,
+      });
+      driveFileId = uploaded.fileId;
+      driveWebViewLink = uploaded.webViewLink;
 
       await prisma.externalAction.create({
         data: {
           documentId: doc.id,
-          kind: "calendar_event",
-          externalId: calendar.eventId,
-          metadata: { htmlLink: calendar.htmlLink },
+          kind: "drive_upload",
+          externalId: uploaded.fileId,
+          metadata: { webViewLink: uploaded.webViewLink, fileName: driveName },
         },
       });
 
-      if (normalized.is_urgent) {
-        await notifyUrgentDocument(doc.userId, normalized.document_type, normalized.due_date);
+      if (normalized.due_date) {
+        try {
+          const title = `תשלום: ${normalized.document_type}${normalized.entity ? ` - ${normalized.entity}` : ""}`;
+          const description = [
+            normalized.summary,
+            "",
+            uploaded.webViewLink ? `קישור למסמך ב-Drive: ${uploaded.webViewLink}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const calendar = await createDueDateEvent({
+            auth,
+            title,
+            description,
+            dueDateYmd: normalized.due_date,
+          });
+          calendarEventId = calendar.eventId;
+
+          await prisma.externalAction.create({
+            data: {
+              documentId: doc.id,
+              kind: "calendar_event",
+              externalId: calendar.eventId,
+              metadata: { htmlLink: calendar.htmlLink },
+            },
+          });
+
+          if (normalized.is_urgent) {
+            await notifyUrgentDocument(doc.userId, normalized.document_type, normalized.due_date);
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("Calendar sync failed", doc.id, msg);
+          syncWarnings.push(`Calendar: ${msg}`);
+        }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn("Drive sync skipped", doc.id, msg);
+      syncWarnings.push(`Drive: ${msg}`);
     }
 
     await prisma.document.update({
       where: { id: doc.id },
       data: {
         status: needsReview ? "needs_review" : "completed",
-        driveFileId: uploaded.fileId,
-        driveWebViewLink: uploaded.webViewLink,
+        driveFileId,
+        driveWebViewLink,
         calendarEventId,
       },
     });
 
     await prisma.processingJob.update({
       where: { id: jobId },
-      data: { status: "completed", lastError: null },
+      data: {
+        status: "completed",
+        lastError: syncWarnings.length ? syncWarnings.join(" | ").slice(0, 8000) : null,
+      },
     });
 
     await prisma.auditLog.create({

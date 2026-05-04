@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import type { IngestionPayload } from "@/server/ingestion/types";
-import { processJob } from "@/server/pipeline/processJob";
 import { saveRawUpload } from "@/server/storage";
 
 export async function enqueueIngestion(payload: IngestionPayload) {
@@ -39,10 +38,6 @@ export async function enqueueIngestion(payload: IngestionPayload) {
       },
     });
   }
-
-  void processJob(job.id).catch((err) => {
-    console.error("processJob failed", job.id, err);
-  });
 
   return { document, job };
 }

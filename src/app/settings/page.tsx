@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useI18n, type Language } from "@/lib/i18n";
 
 const tabs = [
   { id: "general", label: "כללי" },
@@ -11,14 +12,81 @@ const tabs = [
 ];
 
 export default function SettingsPage() {
+  const { lang, setLang } = useI18n();
   const [activeTab, setActiveTab] = useState("general");
 
-  // Mock states for settings UI
   const [defaultCurrency, setDefaultCurrency] = useState("ILS");
   const [theme, setTheme] = useState("dark");
   const [aiAutoProcess, setAiAutoProcess] = useState(true);
   const [notifications, setNotifications] = useState({ email: true, whatsapp: false, urgentOnly: false });
   const [driveFolder, setDriveFolder] = useState("Keeper/{year}/{month}/{category}");
+  const [saveStatus, setSaveStatus] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings");
+        if (!res.ok) return;
+        const data = (await res.json()) as { preferences?: Record<string, unknown> };
+        const p = data.preferences ?? {};
+        if (typeof p.defaultCurrency === "string") setDefaultCurrency(p.defaultCurrency);
+        if (typeof p.theme === "string") setTheme(p.theme);
+        if (typeof p.aiAutoProcess === "boolean") setAiAutoProcess(p.aiAutoProcess);
+        if (typeof p.driveFolderPattern === "string") setDriveFolder(p.driveFolderPattern);
+        if (p.notifications && typeof p.notifications === "object") {
+          setNotifications((prev) => ({ ...prev, ...(p.notifications as typeof notifications) }));
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
+
+  async function saveSettings() {
+    setSaving(true);
+    setSaveStatus(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: lang,
+          defaultCurrency,
+          theme: theme === "system" ? "dark" : theme,
+          aiAutoProcess,
+          driveFolderPattern: driveFolder,
+          notifications,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setSaveStatus({ text: body.error ?? "השמירה נכשלה", type: "error" });
+        return;
+      }
+      setSaveStatus({ text: "ההגדרות נשמרו", type: "success" });
+    } catch {
+      setSaveStatus({ text: "בעיית רשת", type: "error" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteAccount() {
+    if (!confirm("פעולה בלתי הפיכה. למחוק את כל הנתונים והחשבון?")) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/account/delete-data", { method: "POST" });
+      if (res.ok) {
+        window.location.href = "/";
+        return;
+      }
+      setSaveStatus({ text: "המחיקה נכשלה", type: "error" });
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   return (
     <main className="min-h-screen px-4 pb-20 pt-28 sm:px-6 lg:px-8">
@@ -28,9 +96,21 @@ export default function SettingsPage() {
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-teal-200">Settings</p>
             <h1 className="mt-3 text-4xl font-black text-white">הגדרות המערכת</h1>
           </div>
-          <button className="focus-ring rounded-2xl bg-teal-300 px-6 py-3 text-sm font-black text-slate-950 hover:bg-teal-200 transition">
-            שמור שינויים
-          </button>
+          <div className="flex items-center gap-4">
+            {saveStatus && (
+              <span className={`text-sm font-bold ${saveStatus.type === "success" ? "text-teal-200" : "text-red-200"}`}>
+                {saveStatus.text}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void saveSettings()}
+              disabled={saving}
+              className="focus-ring rounded-2xl bg-teal-300 px-6 py-3 text-sm font-black text-slate-950 hover:bg-teal-200 transition disabled:opacity-50"
+            >
+              {saving ? "שומר..." : "שמור שינויים"}
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
@@ -57,9 +137,14 @@ export default function SettingsPage() {
                 <div className="grid gap-6 sm:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-xs font-black uppercase tracking-[0.16em] text-slate-500">שפת ממשק</span>
-                    <select className="focus-ring w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white">
-                      <option>עברית</option>
-                      <option>English</option>
+                    <select
+                      value={lang}
+                      onChange={(e) => setLang(e.target.value as Language)}
+                      className="focus-ring w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-white"
+                    >
+                      <option value="he">עברית</option>
+                      <option value="en">English</option>
+                      <option value="ru">Русский</option>
                     </select>
                   </label>
 
@@ -182,8 +267,13 @@ export default function SettingsPage() {
                     <p className="mt-2 text-sm text-slate-400 mb-6">
                       מחיקת החשבון תסיר את כל המידע שלך מהמערכת באופן בלתי הפיך, כולל היסטוריית חילוצים וקישורים לקבצים (הקבצים עצמם ב-Drive לא ימחקו).
                     </p>
-                    <button className="focus-ring rounded-2xl border border-red-400 bg-red-400/10 px-6 py-3 text-sm font-black text-red-200 hover:bg-red-400/20 transition">
-                      מחק את החשבון שלי
+                    <button
+                      type="button"
+                      onClick={() => void deleteAccount()}
+                      disabled={deleting}
+                      className="focus-ring rounded-2xl border border-red-400 bg-red-400/10 px-6 py-3 text-sm font-black text-red-200 hover:bg-red-400/20 transition disabled:opacity-50"
+                    >
+                      {deleting ? "מוחק..." : "מחק את החשבון שלי"}
                     </button>
                  </div>
               </div>

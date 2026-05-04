@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { processJob } from "@/server/pipeline/processJob";
 
+export const maxDuration = 120;
+
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -17,6 +19,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "לא נמצא" }, { status: 404 });
   }
 
+  await prisma.extraction.deleteMany({ where: { documentId: doc.id } });
+  await prisma.externalAction.deleteMany({ where: { documentId: doc.id } });
+
   const job = await prisma.processingJob.create({
     data: {
       documentId: doc.id,
@@ -27,10 +32,19 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
 
   await prisma.document.update({
     where: { id: doc.id },
-    data: { status: "queued" },
+    data: {
+      status: "queued",
+      driveFileId: null,
+      driveWebViewLink: null,
+      calendarEventId: null,
+    },
   });
 
-  void processJob(job.id).catch((err) => console.error("reprocess failed", job.id, err));
+  try {
+    await processJob(job.id);
+  } catch (err) {
+    console.error("reprocess failed", job.id, err);
+  }
 
   return NextResponse.json({ jobId: job.id });
 }
