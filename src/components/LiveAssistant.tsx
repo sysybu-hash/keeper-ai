@@ -120,6 +120,13 @@ export const LiveAssistant: React.FC<LiveAssistantProps> = ({ isOpen, onClose })
           onerror: () => {
             setStatus("error");
             setErrorMessage("החיבור לעוזר הקולי הופסק. בדקו הרשאת מיקרופון ונסו שוב.");
+            processorRef.current?.disconnect();
+            processorRef.current = null;
+          },
+          onclose: () => {
+            processorRef.current?.disconnect();
+            processorRef.current = null;
+            if (statusRef.current === "active") setStatus("idle");
           },
         },
       });
@@ -141,14 +148,19 @@ export const LiveAssistant: React.FC<LiveAssistantProps> = ({ isOpen, onClose })
       processor.onaudioprocess = (event) => {
         if (!sessionRef.current || mutedRef.current || statusRef.current !== "active") return;
 
-        const inputData = event.inputBuffer.getChannelData(0);
-        const pcmData = float32ToInt16(inputData);
-        sessionRef.current.sendRealtimeInput({
-          audio: {
-            data: arrayBufferToBase64(pcmData.buffer),
-            mimeType: "audio/pcm;rate=16000",
-          },
-        });
+        try {
+          const inputData = event.inputBuffer.getChannelData(0);
+          const pcmData = float32ToInt16(inputData);
+          sessionRef.current.sendRealtimeInput({
+            audio: {
+              data: arrayBufferToBase64(pcmData.buffer),
+              mimeType: "audio/pcm;rate=16000",
+            },
+          });
+        } catch {
+          processorRef.current?.disconnect();
+          processorRef.current = null;
+        }
       };
 
       source.connect(processor);
