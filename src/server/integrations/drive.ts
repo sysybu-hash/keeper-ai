@@ -106,3 +106,8 @@ export async function uploadFileToDrive(params: {
 
   return { fileId, webViewLink };
 }
+
+export async function deleteDriveFile(auth: OAuth2Client, fileId: string): Promise<void> {
+  const drive = google.drive({ version: "v3", auth });
+  await drive.files.delete({ fileId, supportsAllDrives: true });
+}

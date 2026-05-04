@@ -50,7 +50,14 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     return NextResponse.json({ error: "חסר normalizedJson" }, { status: 400 });
   }
 
-  const parsed = extractionSchema.parse(body.normalizedJson);
+  const result = extractionSchema.safeParse(body.normalizedJson);
+  if (!result.success) {
+    return NextResponse.json(
+      { error: "נתונים לא חוקיים", issues: result.error.issues },
+      { status: 400 },
+    );
+  }
+  const parsed = result.data;
   const latest = doc.extractions[0];
   if (!latest) {
     return NextResponse.json({ error: "אין חילוץ לעדכון" }, { status: 400 });
@@ -61,10 +68,12 @@ export async function PATCH(req: Request, ctx: RouteContext) {
     data: { normalizedJson: parsed as object },
   });
 
-  await prisma.document.update({
-    where: { id: doc.id },
-    data: { status: "completed" },
-  });
+  if (doc.status === "needs_review" || doc.status === "failed") {
+    await prisma.document.update({
+      where: { id: doc.id },
+      data: { status: "completed" },
+    });
+  }
 
   return NextResponse.json({ ok: true });
 }

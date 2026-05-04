@@ -41,3 +41,8 @@ export async function createDueDateEvent(params: {
   if (!eventId) throw new Error("Calendar insert returned no event id");
   return { eventId, htmlLink: inserted.data.htmlLink ?? null };
 }
+
+export async function deleteCalendarEvent(auth: OAuth2Client, eventId: string): Promise<void> {
+  const calendar = google.calendar({ version: "v3", auth });
+  await calendar.events.delete({ calendarId: "primary", eventId });
+}
